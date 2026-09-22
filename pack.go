@@ -2,32 +2,41 @@ package pagepack
 
 // Page holds ordered records with possible holes (nil slots).
 type Page struct {
-	No   int
+	No    int
 	Slots [][]byte // nil = hole
 }
 
-// Compact drops half pages incorrectly and renumbers — public parse kept separate.
+// RecSize is the fixed byte length of a complete record.
+const RecSize = 4
+
+// halfPage reports whether p ends in a truncated (short) record.
+func halfPage(p Page) bool {
+	for i := len(p.Slots) - 1; i >= 0; i-- {
+		if p.Slots[i] != nil {
+			return len(p.Slots[i]) != RecSize
+		}
+	}
+	return false
+}
+
+// Compact drops half pages and keeps holes, page order, and slot
+// indexes stable, so re-compacting a page changes nothing.
 func Compact(pages []Page) []Page {
 	out := make([]Page, 0, len(pages))
-	seq := 1
 	for _, p := range pages {
 		if len(p.Slots) == 0 {
 			continue
 		}
-		// BUG: treat truncated last slot as full page always.
-		np := Page{No: p.No, Slots: nil}
-		for _, s := range p.Slots {
+		if halfPage(p) {
+			continue
+		}
+		np := Page{No: p.No, Slots: make([][]byte, len(p.Slots))}
+		for i, s := range p.Slots {
 			if s == nil {
-				// BUG: fill holes instead of keeping them.
 				continue
 			}
-			// BUG: renumber on every compact.
-			cp := append([]byte(nil), s...)
-			np.Slots = append(np.Slots, cp)
-			_ = seq
-			seq++
+			np.Slots[i] = append([]byte(nil), s...)
 		}
-		// BUG: spill first of next page into previous when "full"
 		out = append(out, np)
 	}
 	return out
